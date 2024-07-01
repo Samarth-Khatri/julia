@@ -1057,7 +1057,9 @@ end
                 $ew HasDepWithExtensions.do_something() || error("do_something errored")
                 using ExtDep2
                 $ew using ExtDep2
-                $ew HasExtensions.ext_folder_loaded || error("ext_folder_loaded not set")
+                using ExtDep3
+                $ew using ExtDep3
+                $ew HasExtensions.ext_dep_loaded || error("ext_dep_loaded not set")
             end
             """
             return `$(Base.julia_cmd()) $compile --startup-file=no -e $cmd`
@@ -1105,6 +1107,8 @@ end
             Base.get_extension(HasExtensions, :Extension) isa Module || error("expected extension to load")
             using ExtDep2
             Base.get_extension(HasExtensions, :ExtensionFolder) isa Module || error("expected extension to load")
+            using ExtDep3
+            Base.get_extension(HasExtensions, :ExtensionDep) isa Module || error("expected extension to load")
         end
         """
         for compile in (`--compiled-modules=no`, ``)
@@ -1545,7 +1549,29 @@ end
         end
 
         file = joinpath(depot, "dev", "non-existent.jl")
-        @test_throws SystemError("opening file $(repr(file))") include(file)
+        @test try
+            include(file); false
+        catch e
+            @test e isa SystemError
+            @test e.prefix == "opening file $(repr(file))"
+            true
+        end
+        touch(file)
+        @test include_dependency(file) === nothing
+        chmod(file, 0x000)
+
+        # same for include_dependency: #52063
+        dir = mktempdir() do dir
+            @test include_dependency(dir) === nothing
+            dir
+        end
+        @test try
+            include_dependency(dir); false
+        catch e
+            @test e isa SystemError
+            @test e.prefix == "opening file or folder $(repr(dir))"
+            true
+        end
     end
 end
 
@@ -1609,5 +1635,33 @@ end
 
     finally
        copy!(LOAD_PATH, old_load_path)
-   end
+    end
+end
+
+@testset "project path handling" begin
+    old_load_path = copy(LOAD_PATH)
+    try
+        push!(LOAD_PATH, joinpath(@__DIR__, "project", "ProjectPath"))
+        id_project = Base.identify_package("ProjectPath")
+        Base.locate_package(id_project)
+        @test Base.locate_package(id_project) == joinpath(@__DIR__, "project", "ProjectPath", "CustomPath.jl")
+
+        id_dep = Base.identify_package("ProjectPathDep")
+        @test Base.locate_package(id_dep) == joinpath(@__DIR__, "project", "ProjectPath", "ProjectPathDep", "CustomPath.jl")
+    finally
+        copy!(LOAD_PATH, old_load_path)
+    end
+end
+
+@testset "extension path computation name collision" begin
+    old_load_path = copy(LOAD_PATH)
+    try
+        empty!(LOAD_PATH)
+        push!(LOAD_PATH, joinpath(@__DIR__, "project", "Extensions", "ExtNameCollision_A"))
+        push!(LOAD_PATH, joinpath(@__DIR__, "project", "Extensions", "ExtNameCollision_B"))
+        ext_B = Base.PkgId(Base.uuid5(Base.identify_package("ExtNameCollision_B").uuid, "REPLExt"), "REPLExt")
+        @test Base.locate_package(ext_B) == joinpath(@__DIR__, "project",  "Extensions", "ExtNameCollision_B", "ext", "REPLExt.jl")
+    finally
+        copy!(LOAD_PATH, old_load_path)
+    end
 end
