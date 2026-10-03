@@ -59,6 +59,9 @@ New language features
   and a fresh ^C epoch is re-armed at each prompt; a script that catches a ^C
   cancellation continues under the cancelled scope unless it re-arms one itself
   (`ScopedValues.@with Base.CANCEL_TOKEN => Base.sigint_new_episode!() ...`) ([#60281]).
+* Support for Unicode 18 ([#63349]). The new subscripts `₝` (U+209D), `₞` (U+209E), `₟` (U+209F),
+  and `𝿐` (U+1DFD0) can also be used as operator suffixes, accessible as `\_w`, `\_y`, `\_z`, and `\_pgamma`
+  at the REPL ([#63505]).
 
 Language changes
 ----------------
@@ -70,6 +73,14 @@ Language changes
   (e.g. `Type{Int} <: Union{DataType,UnionAll}` holds). `isa` and dispatch of type *values* are
   unaffected, and a method on `Type{Int}` remains more specific than one on `DataType`
   ([#33136], [#62141]).
+
+* `Core.sizeof` of a `primitive type` now rounds its value bytes up to a multiple of its
+  alignment rather than only up to a whole byte, so it always equals `Base.elsize(Array{T})`
+  and, up to 64 bits, matches C23's `_BitInt(N)`. For example `primitive type Int24 24 end`
+  now has `sizeof` 4 rather than 3. Pointer loads and stores, `read` and `write`, and the layout
+  of structs follow the new size: `unsafe_store!` through a `Ptr{Int24}` now writes 4 bytes.
+  Such types now report `Base.datatype_haspadding`; the trailing padding is not part of the
+  value and does not affect `===` or `objectid` ([#61361]).
 
 Compiler/Runtime improvements
 -----------------------------
@@ -305,6 +316,17 @@ Standard library changes
 #### Dates
 
 * `unix2datetime` now accepts a keyword argument `localtime=true` to use the host system's local time zone instead of UTC ([#50296]).
+* New public (unexported) `Dates.Timestamp{P}` type: a point in time stored as an `Int64` count of `P` (`Second`, `Millisecond`,
+  `Microsecond`, or `Nanosecond`) since the Unix epoch. `Timestamp(...)` creates a
+  `Timestamp{Nanosecond}`, which covers the years 1677 through 2262. The helpers
+  `Dates.unix2timestamp`, `Dates.timestamp2unix`, and `Dates.ISOTimestampFormat` are also public
+  but not exported ([#62994]).
+* Equal `Date`, `DateTime`, and `Timestamp` values now have equal hashes, as `==` requires ([#62994]).
+* New `n` format code for fractional seconds with up to nanosecond precision. A format that used `n`
+  as a literal character must now escape it with a backslash. The default `Time` format,
+  `ISOTimeFormat`, now uses `n`, so `Time` values with sub-millisecond parts round-trip through
+  `string`. The `ns` argument of `Time` now accepts a full fraction of a second, `0` through
+  `999999999` ([#62994]).
 
 #### InteractiveUtils
 

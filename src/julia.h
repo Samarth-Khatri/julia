@@ -229,7 +229,7 @@ typedef struct JL_GC_TRACKED_TYPE _jl_sym_t {
 
 // A numbered SSA value, for optimized code analysis and generation
 // the `id` is a unique, small number
-typedef struct _jl_ssavalue_t {
+typedef struct JL_GC_TRACKED_TYPE _jl_ssavalue_t {
     JL_DATA_TYPE
     ssize_t id;
 } jl_ssavalue_t;
@@ -682,13 +682,13 @@ typedef struct JL_GC_TRACKED_TYPE {
 // denotes `a ∩ b`. It is created transiently inside the subtyping algorithm to
 // represent a greatest-lower-bound that cannot be expressed precisely as a
 // single existing type, and never escapes into user-visible types.
-typedef struct {
+typedef struct JL_GC_TRACKED_TYPE {
     JL_DATA_TYPE
     jl_value_t *JL_NONNULL a;
     jl_value_t *JL_NONNULL b;
 } jl_intersecttype_t;
 
-typedef struct {
+typedef struct JL_GC_TRACKED_TYPE {
     JL_DATA_TYPE
     jl_value_t *JL_NONNULL T;
 } jl_typeeq_t;
@@ -736,8 +736,10 @@ typedef struct {
         // If set, this type's egality can be determined entirely by comparing
         // the non-padding bits of this datatype.
         uint16_t isbitsegal : 1;
-        uint16_t unused_bits : 3;
-        uint16_t padding : 5;
+        // trailing bits of `size` that are not part of the value (primitive types);
+        // bounded by 8 * (MAX_ALIGN - 1) + 7
+        uint16_t unused_bits : 7;
+        uint16_t padding : 1;
     } flags;
     // union {
     //     jl_fielddesc8_t field8[nfields];
@@ -780,7 +782,7 @@ typedef struct JL_GC_TRACKED_TYPE _jl_vararg_t {
     jl_value_t *N;
 } jl_vararg_t;
 
-typedef struct _jl_weakref_t {
+typedef struct JL_GC_TRACKED_TYPE _jl_weakref_t {
     JL_DATA_TYPE
     jl_value_t *value;
 } jl_weakref_t;
@@ -1239,8 +1241,15 @@ struct _jl_gcframe_t {
 
 #define jl_pgcstack (jl_current_task->gcstack)
 
-#define JL_GC_ENCODE_PUSHARGS(n)   (((size_t)(n))<<2)
-#define JL_GC_ENCODE_PUSH(n)       ((((size_t)(n))<<2)|1)
+// The low two bits of nroots give the frame kind, the rest the number of roots.
+#define JL_GCFRAME_DIRECT    0 // slots hold object pointers (JL_GC_PUSHARGS, codegen)
+#define JL_GCFRAME_INDIRECT  1 // slots hold addresses of local variables (JL_GC_PUSH1..8)
+#define JL_GCFRAME_INTERP    2 // interpreter frame (JL_GC_PUSHFRAME)
+#define JL_GCFRAME_FINLIST   3 // finalizer list being run; entries may carry GC_FIN_* tags
+#define JL_GCFRAME_KIND_MASK ((size_t)3)
+
+#define JL_GC_ENCODE_PUSHARGS(n)   ((((size_t)(n))<<2)|JL_GCFRAME_DIRECT)
+#define JL_GC_ENCODE_PUSH(n)       ((((size_t)(n))<<2)|JL_GCFRAME_INDIRECT)
 #define JL_GC_DECODE_NROOTS(n)     (n >> 2)
 
 #ifdef __clang_gcanalyzer__
@@ -2472,6 +2481,7 @@ JL_DLLEXPORT void JL_NORETURN jl_raise(int signo);
 JL_DLLEXPORT const char *jl_pathname_for_handle(void *handle) JL_NOTSAFEPOINT;
 JL_DLLEXPORT const char *jl_pathname_for_symbol(void *symbol) JL_NOTSAFEPOINT;
 JL_DLLEXPORT jl_gcframe_t **jl_adopt_thread(void) JL_CANSAFEPOINT_ENTER;
+JL_DLLEXPORT const char *jl_get_libjulia_internal_path(void) JL_NOTSAFEPOINT;
 
 JL_DLLEXPORT int jl_deserialize_verify_header(ios_t *s);
 JL_DLLEXPORT jl_image_buf_t jl_preload_sysimg(const char *fname) JL_NOTSAFEPOINT;
